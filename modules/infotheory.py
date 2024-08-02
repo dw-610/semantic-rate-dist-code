@@ -79,7 +79,7 @@ def get_mutual_info(p_x_y: np.ndarray) -> float:
         The mutual information I(X;Y).
     """
     checks.check_joint_dist(*var_and_name(p_x_y))
-    p_x, p_y = get_marginal_dists(p_x_y)
+    p_x, p_y = [out.flatten() for out in get_marginal_dists(p_x_y)]
     I_X_Y = 0
     for i in range(len(p_x)):
         for j in range(len(p_y)):
