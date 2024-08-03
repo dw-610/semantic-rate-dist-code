@@ -14,26 +14,55 @@ import matplotlib.pyplot as plt
 
 # ------------------------------------------------------------------------------
 
-def get_semantic_encoder(X: list, Z: dict) -> dict:
+def get_semantic_encoder(X: list, M: int, n: int = 1) -> tuple[dict, dict]:
     """
-    Returns a semantic encoding function for the alphabet X and semantics Z.
-    Should have len(X) = len(Z).
+    Returns a semantic encoding function for the source alphabet X.
+
+    If n=1 (default), the returned encoder takes elements of X as inputs. If
+    n>1, the encoder takes n-length `tuple` objects of elements of X as inputs.
+
+    Right now, just randomly samples points in M-dimensional space from i.i.d.
+    N(0, 1) distributions.
 
     Parameters
     ----------
     X : list[any]
-        List of inputs alphabet symbols.
-    Z : dict[int] -> np.ndarray
-        Dictionary mapping ID's (int) to semantic reps (NumPy arrays).
+        List of input alphabet symbols or sequences. 
+    M : int
+        The dimensionality of the semantic space.
+    n : int (optional)
+        The block length of transmitted sequences.
 
     Returns
     -------
-    e_s : dict[any] -> int
-        Dictionary mapping the inputs symbols to the ID's of the semantic reps.
+    e_s : dict[any or tuple[any]] -> int or tuple[int]
+        Dictionary mapping the inputs symbols (or sequences thereof) to the 
+        ID's of semantic representation (or sequences thereof).
+    Z : dict[int] -> np.ndarray
+        Dictionary mapping ID's (int) to semantic reps (NumPy arrays).
     """
-    if len(X) != len(Z):
-        raise ValueError('X and Z should have the same length.')
-    return {x: z_id for x, z_id in zip(X, Z)}
+    if not isinstance(n, int): raise ValueError("n must be an integer")
+
+    N= len(X)
+    get_rep = lambda M : np.random.normal(size=(M,))
+    
+    if n == 1:
+        Z = {z_id: get_rep(M) for z_id in range(N)}
+        g_s = {x: z_id for z_id, x in enumerate(X)}
+        return g_s, Z
+    elif n > 1:
+        Z = {z_id: get_rep(M) for z_id in range(N)}
+        g_s_single = {x: z_id for z_id, x in enumerate(X)}
+        g_s = {(): ()}
+        for i in range(n):
+            g_s_new = {}
+            for x_seq, z_id_seq in g_s.items():
+                for x, z_id in g_s_single.items():
+                    g_s_new[(*x_seq, x)] = (*z_id_seq, z_id)
+            g_s = g_s_new
+        return g_s, Z
+    else:
+        raise ValueError("n must be an integer >= 1")
 
 # ------------------------------------------------------------------------------
 
@@ -430,19 +459,29 @@ def plot_2D_semantic_constellation(Z: dict, Zh: dict, voronoi):
 
 if __name__=="__main__":
 
-    # testing Lloyd's algorithm
-    from numpy.random import normal as randn
-    
-    N = 1000
+    # ------------------------------------------------------------
+    # # testing Lloyd's algorithm
+    # from numpy.random import normal as randn
+    # N = 1000
+    # M = 2
+    # R = 4
+    # Z_set = {i: randn(size=(M,)) for i in range(N)}
+    # p_z = rand(N); p_z /= np.sum(p_z)
+    # plt.figure(figsize=(12,12))
+    # vnoi, Zh = lloyds_alg(Z_set, p_z, semantic_distortion, R, verbose=True,
+    #                       min_iters=5, plot=False)
+    # plot_2D_semantic_constellation(Z_set, Zh, vnoi)
+    # # print(Z_set, Zh, vnoi, sep='\n')
+    # -------------------------------------------------------------
+
+    # -------------------------------------------------------------
+    # testing semantic encoder for sequences
+    X = [char for char in 'abcde']
+    n = 5
     M = 2
-    R = 4
-
-    Z_set = {i: randn(size=(M,)) for i in range(N)}
-    p_z = rand(N); p_z /= np.sum(p_z)
-
-
-    plt.figure(figsize=(12,12))
-    vnoi, Zh = lloyds_alg(Z_set, p_z, semantic_distortion, R, verbose=True,
-                          min_iters=5, plot=False)
-    plot_2D_semantic_constellation(Z_set, Zh, vnoi)
-    # print(Z_set, Zh, vnoi, sep='\n')
+    g_s, Z = get_semantic_encoder(X, M, n)
+    # print('\n', g_s)
+    print('\n', Z)
+    print('\n', len(g_s))
+    print('\n', g_s[('a',)*5])
+    # --------------------------------------------------------------
