@@ -9,19 +9,20 @@ from numpy.random import choice as choose
 
 from . import coding as cd
 from .coding import semantic_distortion as sem_dist
+from .coding import extend_list_to_seq as extend_list
 from .utils import print_code
 
 # ------------------------------------------------------------------------------
 
-def sim_comm(x, code: dict) -> tuple:
+def sim_comm(x: list, code: dict) -> tuple:
     """
     Simulates a single communication sequence, from the generation of a source
     symbol x to the output of the estimated task variable u_hat.
     
     Parameters
     ----------
-    x : Any (element of the source alphabet X)
-        Source symbol that is the input to the system.
+    x : list[Any] (elements of the source alphabet X)
+        Sequence of n source symbols that is the input to the system.
     codes : dict
         A dictionary containing keyword pairs for the code functions. Should
         have the following keys/value pairs:
@@ -32,12 +33,12 @@ def sim_comm(x, code: dict) -> tuple:
     
     Returns
     -------
-    u_hat : Any
-        The output of the communication chain for the input x.
+    uh : Any
+        The output sequence of the communication chain for the input x.
     z_id : int
-        ID of the semantic representation for x.
+        IDs of the semantic representation sequence for x.
     zh_id : int
-        ID of the recovered semantic representation.
+        IDs of the recovered semantic representation sequence.
     """
     e_s, e_t, g_t, g_s = [code[k] for k in ('e_s', 'e_t', 'g_t', 'g_s')]
     
@@ -51,9 +52,11 @@ def sim_comm(x, code: dict) -> tuple:
 # ------------------------------------------------------------------------------
 
 def naive_technical_random_decoder(
-        X: list, p_x: np.ndarray, Z: dict, U: list, func_dist: dict, rate: int, 
-        num_sims: int, verbose = False):
+        X: list, p_x: np.ndarray, n: int, M: int, U: list, func_dist: dict, 
+        rate: int, num_sims: int, verbose = False):
     """
+    DEPRECATED - NOT GOING TO USE THIS IN SIMULATIONS
+
     Simulates a naive technical code that randomly assigns codewords as members
     of the source alphabet, and a semantic decoder that randomly maps semantic
     codewords to members of the task alphabet.
@@ -66,8 +69,10 @@ def naive_technical_random_decoder(
     p_z : np.ndarray
         The probability distribution of the source.
         NumPy array with shape (len(X),) where the elements sum to 1.
-    Z : dict[int] -> np.ndarray
-        Dictionary mapping ID's (int) to semantic reps (NumPy arrays).
+    n : int
+        The block length of transmitted sequences.
+    M : int
+        The dimensionality of the semantic space.
     U : list
         List of task alphabet symbols.
     func_dist : dict
@@ -88,8 +93,12 @@ def naive_technical_random_decoder(
     avg_discrp : float
         The average distortion discrepancy over the simulations.
     """
+    print('\n**WARNING** naive_technical_random_decoder is deprecated.',
+          'Please use another simulation routine.\n')
+    return None
     N = len(X)
 
+    g_s, Z = cd.get_semantic_encoder(X, M, n)
     Zh_set = {i: Z[i] for i in range(N)}
     code = {
         'e_s': cd.get_semantic_encoder(X, Z),
@@ -123,8 +132,8 @@ def naive_technical_random_decoder(
 # ------------------------------------------------------------------------------
 
 def lloyd_technical_random_decoder(
-        X: list, p_x: np.ndarray, Z: dict, U: list, func_dist: dict, rate: int, 
-        num_sims: int, verbose = False, **kwargs):
+        X: list, p_x: np.ndarray, n: int, M: int, U: list, func_dist: dict, 
+        rate: int, num_sims: int, verbose = False, **kwargs):
     """
     Simulates a naive technical code that randomly assigns codewords as members
     of the source alphabet, and a semantic decoder that randomly maps semantic
@@ -138,8 +147,10 @@ def lloyd_technical_random_decoder(
     p_z : np.ndarray
         The probability distribution of the source.
         NumPy array with shape (len(X),) where the elements sum to 1.
-    Z : dict[int] -> np.ndarray
-        Dictionary mapping ID's (int) to semantic reps (NumPy arrays).
+    n : int
+        The block length of transmitted sequences.
+    M : int
+        The dimensionality of the semantic space.
     U : list
         List of task alphabet symbols.
     func_dist : dict
@@ -167,25 +178,33 @@ def lloyd_technical_random_decoder(
     """
     N = len(X)
 
-    vnoi, Zh_set = cd.lloyds_alg(Z, p_x, sem_dist, rate, verbose, **kwargs)
-    code = {
-        'e_s': cd.get_semantic_encoder(X, Z),
-        **dict(zip(['e_t', 'g_t'], 
-                   cd.tech_code_from_lloyd(vnoi))),
-        'g_s': cd.get_semantic_decoder(Zh_set, U)
-    }
-    if verbose: print_code(code, Z, Zh_set)
+    e_s, Z = cd.get_semantic_encoder(X, M, n)
+
+    vnoi, Z_hat = cd.lloyds_alg(Z, p_x, sem_dist, rate, verbose, **kwargs)
+    e_t, g_t = cd.tech_code_from_lloyd(vnoi, n)
+
+    g_s = cd.get_semantic_decoder(Z_hat, U, n)
+
+    code = {'e_s': e_s, 'e_t': e_t, 'g_t': g_t, 'g_s': g_s}
+    if verbose: print_code(code, Z, Z_hat)
 
     if verbose: print('\nBeginning Lloyd-random simulations...')
     cum_sem_dist, cum_fun_dist, cum_discrep = 0, 0, 0
     for i in range(num_sims):
-        x = X[choose(N, p=p_x)]
+        if n == 1:
+            x = X[choose(N, p=p_x)]
+        else:
+            x = tuple(X[choose(N, p=p_x)] for _ in range(n))
         uh, z_id, zh_id = sim_comm(x, code)
-        try:
-            d_s = sem_dist(Z[z_id], Zh_set[zh_id])
-        except KeyError:
-            breakpoint()
-        d_f = func_dist[(x, uh)]
+        if n == 1:
+            d_s = sem_dist(Z[z_id], Z_hat[zh_id])
+            d_f = func_dist[(x, uh)]
+        if n > 1:
+            xs, uhs, z_ids, zh_ids = x, uh, z_id, zh_id
+            zs = tuple([Z[z_id] for z_id in z_ids])
+            zhs = tuple([Z_hat[zh_id] for zh_id in zh_ids])
+            d_s = sem_dist(zs, zhs, n)
+            d_f = 1/n*sum(func_dist[(x,uh)] for x, uh in zip(xs, uhs))
         cum_sem_dist += d_s
         cum_fun_dist += d_f
         cum_discrep += (d_s - d_f)**2
@@ -200,8 +219,8 @@ def lloyd_technical_random_decoder(
 # ------------------------------------------------------------------------------
 
 def lloyd_technical_optimal_decoder(
-        X: list, p_x: np.ndarray, Z: dict, U: list, func_dist: dict, rate: int, 
-        num_sims: int, verbose = False, **kwargs):
+        X: list, p_x: np.ndarray, n: int, M: int, U: list, func_dist: dict, 
+        rate: int, num_sims: int, verbose = False, **kwargs):
     """
     Simulates a naive technical code that randomly assigns codewords as members
     of the source alphabet, and a semantic decoder that randomly maps semantic
@@ -215,8 +234,10 @@ def lloyd_technical_optimal_decoder(
     p_z : np.ndarray
         The probability distribution of the source.
         NumPy array with shape (len(X),) where the elements sum to 1.
-    Z : dict[int] -> np.ndarray
-        Dictionary mapping ID's (int) to semantic reps (NumPy arrays).
+    n : int
+        The block length of transmitted sequences.
+    M : int
+        The dimensionality of the semantic space.
     U : list
         List of task alphabet symbols.
     func_dist : dict
@@ -243,27 +264,56 @@ def lloyd_technical_optimal_decoder(
         The average distortion discrepancy over the simulations.
     """
     N = len(X)
+
+    X_seqs = extend_list(X, n)
+    U_seqs = extend_list(U, n)
+
+    p_x_seqs = []
+    for x_seq in X_seqs:
+        p_x_seq = 1.0
+        for x in x_seq:
+            p_x_seq *= p_x[X.index(x)]
+        p_x_seqs.append(p_x_seq)
+
+    func_dist_seqs = {}
+    for x_seq in X_seqs:
+        for u_seq in U_seqs:
+            func_dist_seq = 0
+            for x, u in zip(x_seq, u_seq):
+                func_dist_seq += func_dist[(x, u)]
+            func_dist_seqs[(x_seq, u_seq)] = func_dist_seq/n
     
+    e_s, Z = cd.get_semantic_encoder(X, M, n)
+
     vnoi, Z_hat = cd.lloyds_alg(Z, p_x, sem_dist, rate, verbose, **kwargs)
-    e_t, g_t = cd.tech_code_from_lloyd(vnoi)
-    code = {
-        'e_s': cd.get_semantic_encoder(X, Z),
-        'e_t': e_t,
-        'g_t': g_t,
-        'g_s': cd.min_discrp_sem_dec(X, p_x, Z, Z_hat, U, e_t, g_t, func_dist)
-    }
+    e_t, g_t = cd.tech_code_from_lloyd(vnoi, n)
+
+    if n == 1:
+        g_s = cd.min_discrp_sem_dec(X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, func_dist)
+    elif n > 1:
+        g_s = cd.min_discrp_sem_dec(X_seqs, p_x_seqs, n, Z, Z_hat, U_seqs, e_s,
+                                    e_t, g_t, func_dist_seqs)
+
+    code = {'e_s': e_s, 'e_t': e_t, 'g_t': g_t, 'g_s': g_s}
     if verbose: print_code(code, Z, Z_hat)
 
     if verbose: print('\nBeginning Lloyd-optimal simulations...')
     cum_sem_dist, cum_fun_dist, cum_discrep = 0, 0, 0
     for i in range(num_sims):
-        x = X[choose(N, p=p_x)]
+        if n == 1:
+            x = X[choose(N, p=p_x)]
+        else:
+            x = tuple([X[choose(N, p=p_x)] for _ in range(n)])
         uh, z_id, zh_id = sim_comm(x, code)
-        try:
+        if n == 1:
             d_s = sem_dist(Z[z_id], Z_hat[zh_id])
-        except KeyError:
-            breakpoint()
-        d_f = func_dist[(x, uh)]
+            d_f = func_dist[(x, uh)]
+        if n > 1:
+            xs, uhs, z_ids, zh_ids = x, uh, z_id, zh_id
+            zs = tuple([Z[z_id] for z_id in z_ids])
+            zhs = tuple([Z_hat[zh_id] for zh_id in zh_ids])
+            d_s = sem_dist(zs, zhs, n)
+            d_f = 1/n*sum(func_dist[(x,uh)] for x, uh in zip(xs, uhs))
         cum_sem_dist += d_s
         cum_fun_dist += d_f
         cum_discrep += (d_s - d_f)**2

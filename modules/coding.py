@@ -11,6 +11,33 @@ import numpy as np
 from numpy.random import randint
 from numpy.random import random_sample as rand
 import matplotlib.pyplot as plt
+from itertools import product
+
+# ------------------------------------------------------------------------------
+
+def extend_list_to_seq(single_list: list, n: int):
+    """Extends the elements of a `list` to length-n `tuple` objects."""
+    n_list = [()]
+    for i in range(n):
+        new_list = []
+        for x_seq in n_list:
+            for x in single_list:
+                new_list.append((*x_seq, x))
+        n_list = new_list
+    return n_list
+
+# ------------------------------------------------------------------------------
+
+def extend_dict_to_seq(single_dict: dict, n: int):
+    """Extends the key-value pairs of a dictionary to length-n sequences."""
+    n_dict = {(): ()}
+    for i in range(n):
+        n_dict_new = {}
+        for k_seq, v_seq in n_dict.items():
+            for k, v in single_dict.items():
+                n_dict_new[(*k_seq, k)] = (*v_seq, v)
+        n_dict = n_dict_new
+    return n_dict
 
 # ------------------------------------------------------------------------------
 
@@ -49,25 +76,20 @@ def get_semantic_encoder(X: list, M: int, n: int = 1) -> tuple[dict, dict]:
     if n == 1:
         Z = {z_id: get_rep(M) for z_id in range(N)}
         g_s = {x: z_id for z_id, x in enumerate(X)}
-        return g_s, Z
     elif n > 1:
         Z = {z_id: get_rep(M) for z_id in range(N)}
         g_s_single = {x: z_id for z_id, x in enumerate(X)}
-        g_s = {(): ()}
-        for i in range(n):
-            g_s_new = {}
-            for x_seq, z_id_seq in g_s.items():
-                for x, z_id in g_s_single.items():
-                    g_s_new[(*x_seq, x)] = (*z_id_seq, z_id)
-            g_s = g_s_new
-        return g_s, Z
+        g_s = extend_dict_to_seq(g_s_single, n)
     else:
         raise ValueError("n must be an integer >= 1")
+    return g_s, Z
 
 # ------------------------------------------------------------------------------
 
 def get_technical_code(Z: dict, Z_hat: dict, R: int) -> tuple[dict, dict]:
     """
+    DEPRECATED - use tech_code_from_lloyd instead
+
     Returns rate R technical encoding/decoding functions for semantic alphabet 
     Z and recovered alphabet Z_hat.
 
@@ -97,6 +119,9 @@ def get_technical_code(Z: dict, Z_hat: dict, R: int) -> tuple[dict, dict]:
         Technical decoder, mapping ID's (int) of codewords to ID's (int) of 
         semantic representations.
     """
+    print("\n**WARNING** get_technical_code is deprecated.",
+          "Use tech_code_from_lloyd.\n")
+    return None
     N = len(Z)
     cw_set = [i for i in range(2**R)]
     if 2**R == N:
@@ -119,7 +144,7 @@ def get_technical_code(Z: dict, Z_hat: dict, R: int) -> tuple[dict, dict]:
 
 # ------------------------------------------------------------------------------
 
-def tech_code_from_lloyd(voronoi: dict) -> tuple[dict, dict]:
+def tech_code_from_lloyd(voronoi: dict, n: int) -> tuple[dict, dict]:
     """
     Returns rate R technical encoding/decoding functions resulting from running
     Lloyd's algorithm.
@@ -136,33 +161,42 @@ def tech_code_from_lloyd(voronoi: dict) -> tuple[dict, dict]:
         A dictionary where the keys correspond to the ID's of the codewords,
         and the values are lists containing the ID's of the semantic
         representations that map to the codeword.
+    n : int
+        The block length of transmitted sequences.
         
     Returns
     -------
     e_t : dict[int] -> int
-        Technical encoder, mapping ID's (int) of semantic representations to
-        ID's (int) of codewords.
+        Technical encoder, mapping ID's (int) of semantic representations (or 
+        sequences thereof) to ID's (int) of codewords (or sequences thereof).
     g_t : dict[int] -> int
-        Technical decoder, mapping ID's (int) of codewords to ID's (int) of 
-        semantic representation codewords.
+        Technical decoder, mapping ID's (int) of codewords (or sequences 
+        thereof) to ID's (int) of semantic representation codewords (or 
+        sequences thereof).
     """
-    e_t = {}
-    g_t = {}
+    e_t_single = {}
+    g_t_single = {}
     for zh_id in voronoi:
         for z_id in voronoi[zh_id]:
-            e_t[z_id] = zh_id
-        g_t[zh_id] = zh_id
+            e_t_single[z_id] = zh_id
+        g_t_single[zh_id] = zh_id
+
+    if n == 1:
+        e_t, g_t = e_t_single, g_t_single
+    elif n > 1:
+        e_t, g_t = [extend_dict_to_seq(d,n) for d in [e_t_single, g_t_single]]
+    else:
+        raise ValueError("n must be an integer >= 1")
     return e_t, g_t
 
 # ------------------------------------------------------------------------------
 
-def get_semantic_decoder(Z_hat: dict, U: list) -> dict:
+def get_semantic_decoder(Z_hat: dict, U: list, n: int) -> dict:
     """
     Returns a semantic decoding function mapping the recovered semantic reps
     \hat{Z} to the task alphabet U.
 
-    Right now, it is just randomly choosing elements of U to map the recovered
-    representations to.
+    This just randomly chooses elements of U to map to - naive baseline.
 
     Parameters
     ----------
@@ -170,17 +204,26 @@ def get_semantic_decoder(Z_hat: dict, U: list) -> dict:
         Dictionary mapping ID's (int) to recovered semantic reps (NumPy arrays).
     U : list
         List of task alphabet symbols.
+    n : int (optional)
+        The block length of transmitted sequences.
 
     Returns
     -------
     g_s : dict
         Dictionary mapping the Z_hat elements to task alphabet symbols.
     """
-    return {zh_id: U[randint(len(U))] for zh_id in Z_hat}
+    g_s_single = {zh_id: U[randint(len(U))] for zh_id in Z_hat}
+    if n == 1:
+        g_s = g_s_single
+    elif n > 1:
+        g_s = extend_dict_to_seq(g_s_single, n)
+    else:
+        raise ValueError("n must be an integer >= 1")
+    return g_s
 
 # ------------------------------------------------------------------------------
 
-def min_discrp_sem_dec(X, p_x, Z, Z_hat, U, e_t, g_t, func_dist) -> dict:
+def min_discrp_sem_dec(X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, func_dist) -> dict:
     """
     Returns the semantic decoder which minimizes average distortion discrepancy.
 
@@ -194,16 +237,20 @@ def min_discrp_sem_dec(X, p_x, Z, Z_hat, U, e_t, g_t, func_dist) -> dict:
     ----------
     X : list
         X : list[any]
-        List of inputs alphabet symbols.
-    p_z : np.ndarray
-        The probability distribution of the source.
+        List of input alphabet symbols (or sequences of). If n > 1, then these
+        should be n-length tuples of source symbols.
+    p_x : np.ndarray
+        The probability distribution of the source symbols (or sequences).
         NumPy array with shape (len(X),) where the elements sum to 1.
+    n : int (optional)
+        The block length of transmitted sequences.
     Z : dict[int] -> np.ndarray
         Dictionary mapping ID's (int) to semantic reps (NumPy arrays).
     Z_hat : dict[int] = np.ndarray
         Dictionary mapping ID's (int) to recovered semantic reps (NumPy arrays).
     U : list
-        List of task alphabet symbols.
+        List of task alphabet symbols (or sequences of). The n > 1, then these
+        should be n-length tuples of task symbols.
     e_t : dict[int] -> int
         Technical encoder, mapping ID's (int) of semantic representations to
         ID's (int) of codewords.
@@ -220,6 +267,8 @@ def min_discrp_sem_dec(X, p_x, Z, Z_hat, U, e_t, g_t, func_dist) -> dict:
     g_s : dict
         Dictionary mapping the Z_hat elements to task alphabet symbols.    
     """
+    delta = semantic_distortion
+
     N, K, R = len(X), len(U), int(np.log2(len(Z_hat)))
     d_np = np.zeros((N,K))
     for i, x in enumerate(X):
@@ -228,18 +277,26 @@ def min_discrp_sem_dec(X, p_x, Z, Z_hat, U, e_t, g_t, func_dist) -> dict:
     
     d_s_np = np.zeros((N,))
     for i in range(N):
-        d_s_np[i] = semantic_distortion(Z[i], Z_hat[g_t[e_t[i]]])
-        
+        if n == 1:
+            d_s_np[i] = delta(Z[e_s[X[i]]], Z_hat[g_t[e_t[e_s[X[i]]]]])
+        else:
+            z_seq = tuple([Z[z_id] for z_id in e_s[X[i]]])
+            zh_seq = tuple([Z_hat[zh_id] for zh_id in g_t[e_t[e_s[X[i]]]]])
+            d_s_np[i] = delta(z_seq, zh_seq, n)
+
+    rev_e_s = {z_seq: x_seq for x_seq, z_seq in e_s.items()}
+
     g_s = {}
-    for i in range(2**R):
+    for zh in g_t.values():
         x_ids = []
-        # determine if Z_hat[i] corresponds to more than one source symbol
-        for x_id, zh_id in e_t.items():
-            if zh_id == i:
-                x_ids.append(x_id)
+        # determine if Z_hat[i] corresponds to more than one source symbol/seq
+        for z_id, zh_id in e_t.items():
+            if zh_id == zh:
+                x_ids.append(rev_e_s[z_id])
         # if only one, set g_s(i) equal to u that minimizes (d - delta)^2
         if len(x_ids) == 1:
-            g_s[i] = U[np.argmin((d_np[x_ids[0],:] - d_s_np[x_ids[0]])**2)]
+            x_seq_id = X.index(x_ids[0])
+            g_s[zh] = U[np.argmin((d_np[x_seq_id,:] - d_s_np[x_seq_id])**2)]
         # if more than one, need to choose the U that minimizes discrepancy
         # accross these source symbols, weighted by their probabilities
         if len(x_ids) > 1:
@@ -247,33 +304,46 @@ def min_discrp_sem_dec(X, p_x, Z, Z_hat, U, e_t, g_t, func_dist) -> dict:
             for u_id in range(K):
                 cum = 0
                 for x_id in x_ids:
-                    cum += p_x[x_id]*(d_np[x_id, u_id] - d_s_np[x_id])**2
+                    x_seq_id = X.index(x_id)
+                    diff_sq = (d_np[x_seq_id, u_id] - d_s_np[x_seq_id])**2    
+                    cum += p_x[x_seq_id] * diff_sq
                 if cum < min_cum:
                     min_cum = cum
                     min_id = u_id
-            g_s[i] = min_id
-            
+            g_s[zh] = U[min_id]
     return g_s    
 
 # ------------------------------------------------------------------------------
 
-def semantic_distortion(z1: np.ndarray, z2: np.ndarray) -> float:
+def semantic_distortion(z1: np.ndarray, z2: np.ndarray, n: int = 1) -> float:
     """
-    Computes semantic distortion between vectors z1 and z2.
+    Computes semantic distortion between vector (or sequences of) z1 and z2.
+
+    If sequences are passed, the mean of the individual distortions is returned.
 
     Parameters
     ----------
     z1 : np.ndarray
-        A (N,) NumPy array containing coordinates in the conceptual space.
+        A (N,) NumPy array containing coordinates in the conceptual space, OR an
+        n-length `tuple` of (N,) NumPy arrays.
     z1 : np.ndarray
-        A (N,) NumPy array containing coordinates in the conceptual space.
+        A (N,) NumPy array containing coordinates in the conceptual space, OR an
+        n-length `tuple` of (N,) NumPy arrays.
+    n : int (optional)
+        The block length of transmitted sequences. Default is 1.
 
     Returns
     -------
     d_s(z1, z2) : float
-        The semantic distortion between vectors z1 and z2.
+        The (mean) semantic distortion between (sequences of) vectors z1 and z2.
     """
-    return np.sum(np.square(z1 - z2))
+    if n == 1:
+        return np.sum(np.square(z1 - z2))
+    elif n > 1:
+        cum_dist = 0
+        for i in range(n):
+            cum_dist += np.sum(np.square(z1[i] - z2[i]))
+        return cum_dist/n
 
 # ------------------------------------------------------------------------------
 
@@ -480,6 +550,7 @@ if __name__=="__main__":
     n = 5
     M = 2
     g_s, Z = get_semantic_encoder(X, M, n)
+    vnoi, Zh = lloyds_alg(Z)    
     # print('\n', g_s)
     print('\n', Z)
     print('\n', len(g_s))
