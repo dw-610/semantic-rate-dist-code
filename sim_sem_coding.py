@@ -27,6 +27,7 @@ def main():
     N = 100 # alphabet size
     M = 5 # conceptual space dimensionality
     K = 20 # task alphabet size
+    n = 3 # sequence length
 
     R = 4 # rate of the code
 
