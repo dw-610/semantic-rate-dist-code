@@ -319,7 +319,7 @@ def lloyds_alg(Z: dict, p_z: np.ndarray, delta: Callable, R: int,
         else:
             plot_2D_semantic_constellation(Z, Zh, vnoi)
             plt.draw()
-            plt.pause(0.5)
+            plt.pause(0.25)
             plt.clf()
         
     # 3. Get the expected semantic distortion for this assignment
@@ -373,7 +373,7 @@ def lloyds_alg(Z: dict, p_z: np.ndarray, delta: Callable, R: int,
 
         if verbose:
             print(f'({iters}) Old: {E_delta_old:.2f}', f'New: {E_delta:.2f}', 
-                f'Change: {change:.2f}', sep=', ')
+                f'Change: {change:.8f}', sep=', ')
             
         if plot:
             if M != 2:
@@ -401,19 +401,30 @@ def plot_2D_semantic_constellation(Z: dict, Zh: dict, voronoi):
         Zh_np[i,:] = Zh[i]
 
     if M == 2:
-        plt.scatter(Z_np[:,0], Z_np[:,1], color='blue', s=20, marker='.')
-        plt.scatter(Zh_np[:,0], Zh_np[:,1], color='red', s=10, marker='*')
+        plt.scatter(Z_np[:,0], Z_np[:,1], color='blue', s=20, marker='.',
+                    alpha=0.4)
+        minx, maxx = 1e9, -1e9
+        miny, maxy = 1e9, -1e9
         for i in range(2**R):
             zh = Zh_np[i,:]
             for z_id in voronoi[i]:
                 z = Z[z_id]
                 xs = [zh[0], z[0]]
                 ys = [zh[1], z[1]]
-                plt.plot(xs, ys, color='black', linewidth=1, linestyle=':')
-        plt.grid()
-        plt.xlim([-4, 4])
-        plt.ylim([-4, 4])
-        plt.show(block=False)
+                if z[0] < minx: minx = z[0]
+                if z[0] > maxx: maxx = z[0]
+                if z[1] < miny: miny = z[1]
+                if z[1] > maxy: maxy = z[1]
+                plt.plot(xs, ys, color='black', linewidth=0.2, linestyle=':',
+                         alpha=1.0)
+        plt.scatter(Zh_np[:,0], Zh_np[:,1], color='red', s=20, marker='o',
+                    alpha=0.6, zorder=1e9)
+        # plt.grid()
+        plt.xlim([minx, maxx])
+        plt.ylim([miny, maxy])
+        plt.axis('off')
+        plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        plt.show()
 
 # ------------------------------------------------------------------------------
 
@@ -422,15 +433,16 @@ if __name__=="__main__":
     # testing Lloyd's algorithm
     from numpy.random import normal as randn
     
-    N = 5000
+    N = 1000
     M = 2
-    R = 5
+    R = 4
 
     Z_set = {i: randn(size=(M,)) for i in range(N)}
     p_z = rand(N); p_z /= np.sum(p_z)
 
+
     plt.figure(figsize=(12,12))
     vnoi, Zh = lloyds_alg(Z_set, p_z, semantic_distortion, R, verbose=True,
-                          min_iters=25, plot=True)
+                          min_iters=5, plot=False)
     plot_2D_semantic_constellation(Z_set, Zh, vnoi)
     # print(Z_set, Zh, vnoi, sep='\n')
