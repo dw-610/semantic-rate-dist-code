@@ -218,9 +218,11 @@ def lloyd_technical_random_decoder(
 
 # ------------------------------------------------------------------------------
 
-def lloyd_technical_optimal_decoder(
+def simulate_system(
         X: list, p_x: np.ndarray, n: int, M: int, U: list, func_dist: dict, 
-        rate: int, num_sims: int, verbose = False, **kwargs):
+        rate: int, dec_type: str, num_sims: int, verbose: bool = False, 
+        sem_enc_seed: int = None, lloyd_seed: int = None, 
+        sem_dec_seed: int = None, **kwargs):
     """
     Simulates a naive technical code that randomly assigns codewords as members
     of the source alphabet, and a semantic decoder that randomly maps semantic
@@ -231,7 +233,7 @@ def lloyd_technical_optimal_decoder(
     X : list
         X : list[any]
         List of inputs alphabet symbols.
-    p_z : np.ndarray
+    p_x : np.ndarray
         The probability distribution of the source.
         NumPy array with shape (len(X),) where the elements sum to 1.
     n : int
@@ -246,8 +248,22 @@ def lloyd_technical_optimal_decoder(
         Every possible pair must be included in the dictionary.
     rate : int
         The rate of the technical code in bits/semantic representation.
+    dec_type : str
+        The type of semantic decoder to implement in the simulations.
+        Options are "min_discrepancy" or "random".
     num_sums : int
         The number of Monte Carlo simulations to run.
+    verbose : bool (optional)
+        Prints verbose output when True. Default is False.
+    sem_enc_seed : int (optional)
+        If specified, sets the seed before generating the semantic encoder.
+        If None, a random seed is used. Default is None.
+    lloyd_seed : int (optional)
+        If specified, sets the seed before implementing Lloyd's algorithm.
+        If None, a random see is used. Default is None.
+    sem_dec_seed : int (optional)
+        If specified, sets the seed before generating the random sem. decoder.
+        If None, a random seed is used. Default is None.
     kwargs
         Additional keyword arguments. Recognized arguments include:
         - tol (Float): Tolerance for Lloyd's algorthm. See coding.lloyds_alg
@@ -283,21 +299,42 @@ def lloyd_technical_optimal_decoder(
                 func_dist_seq += func_dist[(x, u)]
             func_dist_seqs[(x_seq, u_seq)] = func_dist_seq/n
     
-    e_s, Z = cd.get_semantic_encoder(X, M, n)
+    if sem_enc_seed is not None:
+        random_state = np.random.get_state()
+        np.random.seed(sem_enc_seed)
+        e_s, Z = cd.get_semantic_encoder(X, M, n)
+        np.random.set_state(random_state)
+    else:
+        e_s, Z = cd.get_semantic_encoder(X, M, n)
 
-    vnoi, Z_hat = cd.lloyds_alg(Z, p_x, sem_dist, rate, verbose, **kwargs)
+    if lloyd_seed is not None:
+        random_state = np.random.get_state()
+        np.random.seed(lloyd_seed)
+        vnoi, Z_hat = cd.lloyds_alg(Z, p_x, sem_dist, rate, verbose, **kwargs)
+        np.random.set_state(random_state)
+    else:
+        vnoi, Z_hat = cd.lloyds_alg(Z, p_x, sem_dist, rate, verbose, **kwargs)
+
     e_t, g_t = cd.tech_code_from_lloyd(vnoi, n)
 
-    if n == 1:
-        g_s = cd.min_discrp_sem_dec(X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, func_dist)
-    elif n > 1:
-        g_s = cd.min_discrp_sem_dec(X_seqs, p_x_seqs, n, Z, Z_hat, U_seqs, e_s,
-                                    e_t, g_t, func_dist_seqs)
+    if dec_type == 'min_discrepancy':
+        if n == 1:
+            g_s = cd.min_discrp_sem_dec(X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, 
+                                        func_dist)
+        elif n > 1:
+            g_s = cd.min_discrp_sem_dec(X_seqs, p_x_seqs, n, Z, Z_hat, U_seqs, 
+                                        e_s, e_t, g_t, func_dist_seqs)
+    elif dec_type == 'random':
+        random_state = np.random.get_state()
+        np.random.seed(sem_dec_seed)
+        g_s = cd.get_semantic_decoder(Z_hat, U, n)
+        np.random.set_state(random_state)
+
 
     code = {'e_s': e_s, 'e_t': e_t, 'g_t': g_t, 'g_s': g_s}
     if verbose: print_code(code, Z, Z_hat)
 
-    if verbose: print('\nBeginning Lloyd-optimal simulations...')
+    if verbose: print('\nBeginning simulations...')
     cum_sem_dist, cum_fun_dist, cum_discrep = 0, 0, 0
     for i in range(num_sims):
         if n == 1:
@@ -317,7 +354,9 @@ def lloyd_technical_optimal_decoder(
         cum_sem_dist += d_s
         cum_fun_dist += d_f
         cum_discrep += (d_s - d_f)**2
-    if verbose: print('Done!')
+        if (i+1) % num_sims/100 == 0:
+            print(f'\r{i+1}/{num_sims}', end='')
+    if verbose: print('\nDone!')
 
     avg_sem_dist = cum_sem_dist/num_sims
     avg_fun_dist = cum_fun_dist/num_sims
