@@ -20,14 +20,14 @@ from modules.sims import simulate_system as sim
 def main():
     
     # PARAMETERS
-    N = 4           # alphabet size
-    PX = 'uniform'  # type of source distribution ('uniform' or 'random')
-    M = 2           # conceptual space dimensionality
-    K = 2           # task alphabet size
+    N = 12           # alphabet size
+    PX = 'random'  # type of source distribution ('uniform' or 'random')
+    M = 2          # conceptual space dimensionality
+    K = 4           # task alphabet size
     n = 1           # block sequence length
-    R = 1           # rate of the code
+    R = 3           # rate of the code
 
-    SIMS = 10000    # number of Monte Carlo simulations to run
+    SIMS = 100000    # number of Monte Carlo simulations to run
 
     # random seeds for reproducibility
     PX_SEED = 610           # seed for choosing p(x) (if PX = 'random')
@@ -66,20 +66,31 @@ def main():
                             SIMS, VERBOSE, SEM_ENC_SEED, LLOYD_SEED, 
                             SEM_DEC_SEED)
     
+    # carry out simulations with the oracle semantic decoder
+    d_s_o, d_f_o, Delta_o = sim(X, p_x, n, M, U, func_dist, R, 'oracle',
+                            SIMS, VERBOSE, SEM_ENC_SEED, LLOYD_SEED, 
+                            SEM_DEC_SEED)
+    
     # carry out simulations with the random semantic decoder
     d_s_r, d_f_r, Delta_r = sim(X, p_x, n, M, U, func_dist, R, 'random',
                             SIMS, VERBOSE, SEM_ENC_SEED, LLOYD_SEED,
                             SEM_DEC_SEED)
 
     # print out parameters and results in LaTeX table row format
-    if PX == 'uniform':
-        px = 'u'
-    elif PX == 'random':
-        px = 'r'
-    print('\nN', 'p', 'M', 'K', 'n', 'R', 'Edel', 'EDel', 'Ed_f', 
-          'Edelr', 'EDelr', 'Ed_fr', sep=' & ')
-    print(N, px, M, K, n, R, f'{d_s:.2f}', f'{Delta:.2f}', f'{d_f:.2f}', 
-          f'{d_s_r:.2f} ', f'{Delta_r:.2f} ', f'{d_f_r:.2f}', sep=' & ')
+    def tex_print(*args, **kwargs):
+        print(*args, sep=' & ', **kwargs)
+
+    print('\nN', 'p', 'M', 'K', 'n', 'R')
+    print(N, PX, M, K, n, R)
+    print('\n           Edel ', 'EDel ', 'Ed_f')
+    print(f'(Proposed) {d_s:.3f}', f'{Delta:.3f}', f'{d_f:.3f}')
+    print(f'(Naive)    {d_s_r:.3f}', f'{Delta_r:.3f}', f'{d_f_r:.3f}')
+    print(f'(Oracle)   {d_s_o:.3f}', f'{Delta_o:.3f}', f'{d_f_o:.3f}')
+
+    print('\nfor pasting:')
+    tex_print(N, PX, M, K, n, R, f'{d_s:.3f}', f'{Delta:.3f}', f'{d_f:.3f}',
+              f'{Delta_r:.3f}',f'{d_f_r:.3f}',f'{Delta_o:.3f}',f'{d_f_o:.3f}',
+              end = ' \\\\ \n')
 
 # ------------------------------------------------------------------------------
 

@@ -191,12 +191,11 @@ def tech_code_from_lloyd(voronoi: dict, n: int) -> tuple[dict, dict]:
 
 # ------------------------------------------------------------------------------
 
-def get_semantic_decoder(Z_hat: dict, U: list, n: int) -> dict:
+def rand_semantic_decoder(Z_hat: dict, U: list, n: int) -> dict:
     """
     Returns a semantic decoding function mapping the recovered semantic reps
-    \hat{Z} to the task alphabet U.
-
-    This just randomly chooses elements of U to map to - naive baseline.
+    \hat{Z} to the task alphabet U. Just randomly chooses elements of U to map 
+    to - used as a naive baseline in our experiments.
 
     Parameters
     ----------
@@ -223,7 +222,8 @@ def get_semantic_decoder(Z_hat: dict, U: list, n: int) -> dict:
 
 # ------------------------------------------------------------------------------
 
-def min_discrp_sem_dec(X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, func_dist) -> dict:
+def min_discrp_sem_dec(X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, 
+                       func_dist) -> dict:
     """
     Returns the semantic decoder which minimizes average distortion discrepancy.
 
@@ -251,6 +251,9 @@ def min_discrp_sem_dec(X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, func_dist) -> dict
     U : list
         List of task alphabet symbols (or sequences of). The n > 1, then these
         should be n-length tuples of task symbols.
+    e_s : dict[any or tuple[any]] -> int or tuple[int]
+        Dictionary mapping the inputs symbols (or sequences thereof) to the 
+        ID's of semantic representation (or sequences thereof).
     e_t : dict[int] -> int
         Technical encoder, mapping ID's (int) of semantic representations to
         ID's (int) of codewords.
@@ -315,6 +318,103 @@ def min_discrp_sem_dec(X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, func_dist) -> dict
 
 # ------------------------------------------------------------------------------
 
+def min_distortion_sem_dec(X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, 
+                           func_dist) -> dict:
+    """
+    Returns the semantic decoder which minimizes average functional distortion.
+    Used as an "oracle" decoder in our experiments.
+
+    Accomplishes this with a simple process:
+    - If a semantic codeword corresponds to only one source symbol, map it to 
+      the task symbol which yield the distortion closest the semantic distortion
+    - Otherwise, map to the task symbol that minimizes the weighted sum of the
+      discrepancies over the corresponding source symbols (weights are probs)
+
+    Parameters
+    ----------
+    X : list
+        X : list[any]
+        List of input alphabet symbols (or sequences of). If n > 1, then these
+        should be n-length tuples of source symbols.
+    p_x : np.ndarray
+        The probability distribution of the source symbols (or sequences).
+        NumPy array with shape (len(X),) where the elements sum to 1.
+    n : int (optional)
+        The block length of transmitted sequences.
+    Z : dict[int] -> np.ndarray
+        Dictionary mapping ID's (int) to semantic reps (NumPy arrays).
+    Z_hat : dict[int] = np.ndarray
+        Dictionary mapping ID's (int) to recovered semantic reps (NumPy arrays).
+    U : list
+        List of task alphabet symbols (or sequences of). The n > 1, then these
+        should be n-length tuples of task symbols.
+    e_s : dict[any or tuple[any]] -> int or tuple[int]
+        Dictionary mapping the inputs symbols (or sequences thereof) to the 
+        ID's of semantic representation (or sequences thereof).
+    e_t : dict[int] -> int
+        Technical encoder, mapping ID's (int) of semantic representations to
+        ID's (int) of codewords.
+    g_t : dict[int] -> int
+        Technical decoder, mapping ID's (int) of codewords to ID's (int) of 
+        semantic representations.
+    func_dist : dict
+        Function mapping (X,U) pairs to distortion values, in the form of a 
+        dictionary with keys (x,u), x in X and u in U, and values as floats.
+        Every possible pair must be included in the dictionary.
+
+    Returns
+    -------
+    g_s : dict
+        Dictionary mapping the Z_hat elements to task alphabet symbols.    
+    """
+    delta = semantic_distortion
+
+    N, K, R = len(X), len(U), int(np.log2(len(Z_hat)))
+    d_np = np.zeros((N,K))
+    for i, x in enumerate(X):
+        for j, u in enumerate(U):
+            d_np[i,j] = func_dist[(x,u)]
+    
+    d_s_np = np.zeros((N,))
+    for i in range(N):
+        if n == 1:
+            d_s_np[i] = delta(Z[e_s[X[i]]], Z_hat[g_t[e_t[e_s[X[i]]]]])
+        else:
+            z_seq = tuple([Z[z_id] for z_id in e_s[X[i]]])
+            zh_seq = tuple([Z_hat[zh_id] for zh_id in g_t[e_t[e_s[X[i]]]]])
+            d_s_np[i] = delta(z_seq, zh_seq, n)
+
+    rev_e_s = {z_seq: x_seq for x_seq, z_seq in e_s.items()}
+
+    g_s = {}
+    for zh in g_t.values():
+        x_ids = []
+        # determine if Z_hat[i] corresponds to more than one source symbol/seq
+        for z_id, zh_id in e_t.items():
+            if zh_id == zh:
+                x_ids.append(rev_e_s[z_id])
+        # if only one, set g_s(i) equal to u that minimizes *distortion*
+        if len(x_ids) == 1:
+            x_seq_id = X.index(x_ids[0])
+            g_s[zh] = U[np.argmin(d_np[x_seq_id,:])]
+        # if more than one, need to choose the U that minimizes *distortion*
+        # accross these source symbols, weighted by their probabilities
+        if len(x_ids) > 1:
+            min_cum, min_id = 1e9, None
+            for u_id in range(K):
+                cum = 0
+                for x_id in x_ids:
+                    x_seq_id = X.index(x_id)
+                    distortion = d_np[x_seq_id, u_id]
+                    cum += p_x[x_seq_id] * distortion
+                if cum < min_cum:
+                    min_cum = cum
+                    min_id = u_id
+            g_s[zh] = U[min_id]
+    return g_s    
+
+# ------------------------------------------------------------------------------
+
 def semantic_distortion(z1: np.ndarray, z2: np.ndarray, n: int = 1) -> float:
     """
     Computes semantic distortion between vector (or sequences of) z1 and z2.
@@ -338,11 +438,11 @@ def semantic_distortion(z1: np.ndarray, z2: np.ndarray, n: int = 1) -> float:
         The (mean) semantic distortion between (sequences of) vectors z1 and z2.
     """
     if n == 1:
-        return np.sum(np.square(z1 - z2))
+        return np.linalg.norm(z1 - z2)
     elif n > 1:
         cum_dist = 0
         for i in range(n):
-            cum_dist += np.sum(np.square(z1[i] - z2[i]))
+            cum_dist += np.linalg.norm(z1[i] - z2[i])
         return cum_dist/n
 
 # ------------------------------------------------------------------------------

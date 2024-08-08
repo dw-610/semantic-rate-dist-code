@@ -104,7 +104,7 @@ def naive_technical_random_decoder(
         'e_s': cd.get_semantic_encoder(X, Z),
         **dict(zip(['e_t', 'g_t'], 
                    cd.get_technical_code(Z, Zh_set, rate))),
-        'g_s': cd.get_semantic_decoder(Zh_set, U)
+        'g_s': cd.rand_semantic_decoder(Zh_set, U)
     }
     if verbose: print_code(code, Z, Zh_set)
 
@@ -183,7 +183,7 @@ def lloyd_technical_random_decoder(
     vnoi, Z_hat = cd.lloyds_alg(Z, p_x, sem_dist, rate, verbose, **kwargs)
     e_t, g_t = cd.tech_code_from_lloyd(vnoi, n)
 
-    g_s = cd.get_semantic_decoder(Z_hat, U, n)
+    g_s = cd.rand_semantic_decoder(Z_hat, U, n)
 
     code = {'e_s': e_s, 'e_t': e_t, 'g_t': g_t, 'g_s': g_s}
     if verbose: print_code(code, Z, Z_hat)
@@ -319,23 +319,33 @@ def simulate_system(
 
     if dec_type == 'min_discrepancy':
         if n == 1:
-            g_s = cd.min_discrp_sem_dec(X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, 
-                                        func_dist)
+            g_s = cd.min_discrp_sem_dec(
+                X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, func_dist)
         elif n > 1:
-            g_s = cd.min_discrp_sem_dec(X_seqs, p_x_seqs, n, Z, Z_hat, U_seqs, 
-                                        e_s, e_t, g_t, func_dist_seqs)
+            g_s = cd.min_discrp_sem_dec(
+                X_seqs, p_x_seqs, n, Z, Z_hat, U_seqs, e_s, e_t, g_t, 
+                func_dist_seqs)
     elif dec_type == 'random':
         random_state = np.random.get_state()
         np.random.seed(sem_dec_seed)
-        g_s = cd.get_semantic_decoder(Z_hat, U, n)
+        g_s = cd.rand_semantic_decoder(Z_hat, U, n)
         np.random.set_state(random_state)
+    elif dec_type == 'oracle':
+        if n == 1:
+            g_s = cd.min_distortion_sem_dec(
+                X, p_x, n, Z, Z_hat, U, e_s, e_t, g_t, func_dist)
+        elif n > 1:
+            g_s = cd.min_distortion_sem_dec(
+                X_seqs, p_x_seqs, n, Z, Z_hat, U_seqs, e_s, e_t, g_t, 
+                func_dist_seqs)
 
 
     code = {'e_s': e_s, 'e_t': e_t, 'g_t': g_t, 'g_s': g_s}
     if verbose: print_code(code, Z, Z_hat)
 
-    if verbose: print('\nBeginning simulations...')
+    print(f'\nBeginning {dec_type} simulations...')
     cum_sem_dist, cum_fun_dist, cum_discrep = 0, 0, 0
+    p_cnt = 0
     for i in range(num_sims):
         if n == 1:
             x = X[choose(N, p=p_x)]
@@ -354,9 +364,10 @@ def simulate_system(
         cum_sem_dist += d_s
         cum_fun_dist += d_f
         cum_discrep += (d_s - d_f)**2
-        if (i+1) % num_sims/100 == 0:
-            print(f'\r{i+1}/{num_sims}', end='')
-    if verbose: print('\nDone!')
+        if (i+1) % int(num_sims/100) == 0:
+            p_cnt += 1
+            print(f'\r{p_cnt}/100', end='')
+    print('\nDone!')
 
     avg_sem_dist = cum_sem_dist/num_sims
     avg_fun_dist = cum_fun_dist/num_sims
