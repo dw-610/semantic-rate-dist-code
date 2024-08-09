@@ -14,20 +14,21 @@ from numpy.random import random_sample as rand
 
 from modules.sims import simulate_system as sim
 
-
 # ------------------------------------------------------------------------------
 
 def main():
     
     # PARAMETERS
-    N = 12           # alphabet size
-    PX = 'random'  # type of source distribution ('uniform' or 'random')
-    M = 2          # conceptual space dimensionality
+    N = 12          # alphabet size
+    PX = 'uniform'  # type of source distribution ('uniform' or 'random')
+    M = 2           # conceptual space dimensionality
     K = 4           # task alphabet size
     n = 1           # block sequence length
     R = 3           # rate of the code
 
     SIMS = 100000    # number of Monte Carlo simulations to run
+
+    PRINT_LATEX = False
 
     # random seeds for reproducibility
     PX_SEED = 610           # seed for choosing p(x) (if PX = 'random')
@@ -76,10 +77,6 @@ def main():
                             SIMS, VERBOSE, SEM_ENC_SEED, LLOYD_SEED,
                             SEM_DEC_SEED)
 
-    # print out parameters and results in LaTeX table row format
-    def tex_print(*args, **kwargs):
-        print(*args, sep=' & ', **kwargs)
-
     print('\nN', 'p', 'M', 'K', 'n', 'R')
     print(N, PX, M, K, n, R)
     print('\n           Edel ', 'EDel ', 'Ed_f')
@@ -87,10 +84,12 @@ def main():
     print(f'(Naive)    {d_s_r:.3f}', f'{Delta_r:.3f}', f'{d_f_r:.3f}')
     print(f'(Oracle)   {d_s_o:.3f}', f'{Delta_o:.3f}', f'{d_f_o:.3f}')
 
-    print('\nfor pasting:')
-    tex_print(N, PX, M, K, n, R, f'{d_s:.3f}', f'{Delta:.3f}', f'{d_f:.3f}',
-              f'{Delta_r:.3f}',f'{d_f_r:.3f}',f'{Delta_o:.3f}',f'{d_f_o:.3f}',
-              end = ' \\\\ \n')
+    # print out parameters and results in LaTeX table row format
+    if PRINT_LATEX:
+        print('\nfor pasting in to latex table row:')
+        print(N, PX, M, K, n, R, f'{d_s:.3f}', f'{Delta:.3f}', f'{d_f:.3f}',
+                f'{Delta_r:.3f}',f'{d_f_r:.3f}',f'{Delta_o:.3f}',f'{d_f_o:.3f}',
+                sep=' & ', end = ' \\\\ \n')
 
 # ------------------------------------------------------------------------------
 

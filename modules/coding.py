@@ -11,7 +11,6 @@ import numpy as np
 from numpy.random import randint
 from numpy.random import random_sample as rand
 import matplotlib.pyplot as plt
-from itertools import product
 
 # ------------------------------------------------------------------------------
 
